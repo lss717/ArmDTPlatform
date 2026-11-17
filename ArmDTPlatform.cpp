@@ -120,6 +120,22 @@ static void platformStageReset (void)
   for (;;) { __asm__ volatile ("wfe"); }
 }
 
+// H410: wire the standard XNU halt/restart entry (halt_all_cpus ->
+// PEHaltRestart -> IOPlatformExpert::haltRestart -> PE_halt_restart) to the
+// existing PSCI SYSTEM_RESET probe above. This reuses the only reset
+// implementation the port already had; it adds no PMIC register sequence.
+static int
+platformHaltRestart (unsigned int type)
+{
+  // H410: only the reboot path uses PSCI SYSTEM_RESET. A plain halt has no
+  // power-off implementation in this port, so leave it unsupported.
+  if (type == kPERestartCPU || type == kPEPanicRestartCPU) {
+    IOLog ("ArmDTPlatform: restart type=%u via PSCI SYSTEM_RESET\n", type);
+    platformStageReset ();
+  }
+  return -1;
+}
+
 bool ArmDTPlatform::configure (IOService *provider)
 {
   IORegistryEntry *cpus = provider->childFromPath ("cpus", gIODTPlane);
@@ -140,6 +156,7 @@ bool ArmDTPlatform::configure (IOService *provider)
     IOLog ("ArmDTPlatform: /chosen does not supply a usable CHRP NVRAM proxy\n");
     return false;
   }
+  PE_halt_restart = platformHaltRestart;
   unsigned platformStage = 0;
   PE_parse_boot_argn ("sheng-platform-stage", &platformStage, sizeof (platformStage));
   if (platformStage == 1) {
